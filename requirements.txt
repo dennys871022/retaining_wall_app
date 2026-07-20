@@ -1,4 +1,11 @@
 streamlit
 pandas
 plotly
-numpy
+xlsxwriter
+openpyxl
+gspread
+oauth2client
+matplotlib
+adjustText
+chardet>=5.0
+adjustText
