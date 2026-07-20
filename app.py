@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import re
@@ -55,7 +56,6 @@ def setup_chinese_font():
 
 @st.cache_data
 def load_boundary_data():
-    # 載入排樁座標作為開挖邊界線
     try:
         try:
             df = pd.read_csv('排樁座標.csv', encoding='utf-8')
@@ -75,12 +75,33 @@ def load_boundary_data():
 
 @st.cache_data
 def load_base_data():
-    # 載入中間樁/共構樁作為互動點位
     try:
-        df = pd.read_csv('cleaned_piles.csv', encoding='utf-8')
-        df['樁號'] = df['樁號'].astype(str)
-        df['數字'] = df['樁號'].str.extract(r'(\d+)').fillna(0).astype(int)
-        return df.drop_duplicates(subset=['樁號']).dropna(subset=['X', 'Y']).sort_values('數字')
+        try:
+            df = pd.read_csv('中間樁.csv', encoding='utf-8')
+        except:
+            df = pd.read_csv('中間樁.csv', encoding='big5')
+        
+        texts = df[df['名稱'].isin(['文字', '多行文字']) & df['內容'].notnull()][['內容', '位置 X', '位置 Y']].copy()
+        texts.rename(columns={'位置 X': 'X', '位置 Y': 'Y'}, inplace=True)
+        texts.dropna(subset=['X', 'Y'], inplace=True)
+
+        # 僅擷取 HH3 作為所有 253 支樁的基準，避免重複計算
+        piles = df[df['名稱'] == 'HH3'][['位置 X', '位置 Y']].copy()
+        piles.rename(columns={'位置 X': 'X', '位置 Y': 'Y'}, inplace=True)
+        piles.dropna(subset=['X', 'Y'], inplace=True)
+
+        def get_nearest_text(px, py):
+            if len(texts) == 0: return "未命名"
+            dist = np.sqrt((texts['X'] - px)**2 + (texts['Y'] - py)**2)
+            nearest_idx = dist.idxmin()
+            if dist[nearest_idx] < 800:
+                return str(texts.loc[nearest_idx, '內容']).strip()
+            return "未命名"
+
+        piles['樁號'] = piles.apply(lambda row: get_nearest_text(row['X'], row['Y']), axis=1)
+        piles['樁號'] = piles['樁號'].astype(str)
+        piles['數字'] = piles['樁號'].str.extract(r'(\d+)').fillna(0).astype(int)
+        return piles.drop_duplicates(subset=['樁號']).dropna(subset=['X', 'Y']).sort_values('數字')
     except Exception as e:
         st.error(f"底圖載入失敗: {e}")
         return None
@@ -187,8 +208,12 @@ def save_data(piles):
     for p in piles:
         p = p.upper().strip()
         if p not in df_history_full['樁號'].values:
-            seq += 1; b = df_base[df_base['樁號'] == p]
-            x, y = (b['X'].iloc[0], b['Y'].iloc[0]) if not b.empty else (0, 0)
+            seq += 1
+            if df_base is not None and not df_base.empty:
+                b = df_base[df_base['樁號'] == p]
+                x, y = (b['X'].iloc[0], b['Y'].iloc[0]) if not b.empty else (0, 0)
+            else:
+                x, y = 0, 0
             new_d.append([p, str(work_date), machine, int(seq), float(x), float(y)])
     if new_d:
         if demo_mode:
@@ -233,13 +258,15 @@ with t2:
                 pts = re.split(r'[,\s]+', raw)
                 for pt in pts:
                     if '-' in pt:
-                        s_idx, e_idx = map(int, pt.split('-'))
-                        if s_idx <= e_idx:
-                            seq_list = list(range(s_idx, e_idx + 1))
-                        else:
-                            wrap_max = 253
-                            seq_list = list(range(s_idx, wrap_max + 1)) + list(range(1, e_idx + 1))
-                        for n in seq_list[::step]: plist.append(f"{n}")
+                        try:
+                            s_idx, e_idx = map(int, pt.split('-'))
+                            if s_idx <= e_idx:
+                                for n in range(s_idx, e_idx + 1): plist.append(f"{n}")
+                            else:
+                                wrap_max = 253
+                                for n in range(s_idx, wrap_max + 1): plist.append(f"{n}")
+                                for n in range(1, e_idx + 1): plist.append(f"{n}")
+                        except: pass
                     else:
                         plist.append(pt)
             process_and_save(plist)
@@ -301,6 +328,9 @@ if not df_history_plot.empty:
         week_start_str = f"{monday.year-1911}/{monday.month:02d}/{monday.day:02d}"
 
 def process_status_logic(df_hist, df_b):
+    if df_b is None or df_b.empty:
+        return pd.DataFrame(columns=['X', 'Y', '樁號', '狀態', '標籤', '純順序', 'is_horizontal'])
+        
     plot_df = df_b[['樁號', 'X', 'Y', '數字']].copy().sort_values('數字').reset_index(drop=True)
     dx = plot_df['X'].diff().bfill(); dy = plot_df['Y'].diff().bfill()
     dx_fwd = (plot_df['X'].shift(-1) - plot_df['X']).ffill(); dy_fwd = (plot_df['Y'].shift(-1) - plot_df['Y']).ffill()
@@ -324,7 +354,7 @@ def process_status_logic(df_hist, df_b):
 df_p = process_status_logic(df_history_plot, df_base)
 
 def get_local_stats(sel_list, p_df):
-    if not sel_list: return 0, 0
+    if not sel_list or p_df.empty: return 0, 0
     sub = p_df[p_df['樁號'].isin(sel_list)]
     total = len(sub)
     done = len(sub[sub['狀態'] != '未完成'])
@@ -335,12 +365,13 @@ local_b_done, local_b_total = get_local_stats(st.session_state.sel_b, df_p)
 
 st.divider()
 
-# 主視覺區域
-fig_web = px.scatter(df_p, x='X', y='Y', text='標籤', color='狀態', color_discrete_map={'未完成': '#696969', '[已完成]': '#FFB6C1'}, custom_data=['樁號'])
-fig_web.update_traces(selector=dict(name='未完成'), marker=dict(symbol='circle-open', size=16, line=dict(width=2, color='#A9A9A9')), textposition='top right')
-fig_web.update_traces(selector=lambda t: t.name != '未完成', marker=dict(symbol='circle', size=16, line=dict(width=1, color='white')), textposition='top right')
+if not df_p.empty:
+    fig_web = px.scatter(df_p, x='X', y='Y', text='標籤', color='狀態', color_discrete_map={'未完成': '#696969', '[已完成]': '#FFB6C1'}, custom_data=['樁號'])
+    fig_web.update_traces(selector=dict(name='未完成'), marker=dict(symbol='circle-open', size=16, line=dict(width=2, color='#A9A9A9')), textposition='top right')
+    fig_web.update_traces(selector=lambda t: t.name != '未完成', marker=dict(symbol='circle', size=16, line=dict(width=1, color='white')), textposition='top right')
+else:
+    fig_web = go.Figure()
 
-# 加入排樁開挖邊界線
 if not df_boundary.empty:
     fig_web.add_trace(go.Scatter(x=df_boundary['X'], y=df_boundary['Y'], mode='lines', line=dict(color='#D3D3D3', width=2), name='開挖邊界(排樁)', hoverinfo='skip'))
 
@@ -387,7 +418,7 @@ with c_btn1:
 
 with c_btn2:
     st.markdown("**👉 方式二：將【文字輸入】的範圍分配給**")
-    manual_raw = st.text_input("輸入樁號區間 (如: X27-X30, 26, 91)", label_visibility="collapsed")
+    manual_raw = st.text_input("輸入樁號區間 (如: 27-30, 26, 91)", label_visibility="collapsed")
     cb3, cb4 = st.columns(2)
     if cb3.button("📌 A機 (輸入)"): st.session_state.sel_a = parse_range_to_piles(manual_raw); st.rerun()
     if cb4.button("📌 B機 (輸入)"): st.session_state.sel_b = parse_range_to_piles(manual_raw); st.rerun()
@@ -398,7 +429,7 @@ with c_btn3:
 
 st.info(f"當前 PDF 暫存狀態：A機截圖區包含 {len(st.session_state.sel_a)} 支樁 | B機截圖區包含 {len(st.session_state.sel_b)} 支樁")
 
-if not df_history_plot.empty:
+if not df_history_plot.empty or not df_p.empty:
     st.sidebar.markdown("### 📄 PDF 報表文字內容")
     st.sidebar.text_input("右側主標題", key="pdf_loc_note_right")
     st.sidebar.text_input("左側副標題", key="pdf_loc_note_left")
@@ -489,7 +520,6 @@ if not df_history_plot.empty:
                 ax.axis('off')
                 return
             
-            # 加入排樁開挖邊界線繪製
             if not df_boundary.empty:
                 ax.plot(df_boundary['X'], df_boundary['Y'], color='#E0E0E0', linewidth=2, zorder=1, label='開挖邊界' if is_main else None)
 
@@ -602,10 +632,10 @@ if not df_history_plot.empty:
             col = 10; states = ['未完成', '[已完成]'] + sorted([s for s in p_df['狀態'].unique() if s not in ['未完成', '[已完成]']])
             colors = {'未完成': '#696969', '[已完成]': '#FFB6C1'}; pal = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2']; ci = 0
             for s in states:
-                sub = p_df[p_df['狀態'] == s].reset_index(drop=True); 
+                sub = p_df[p_df['狀態'] == s].reset_index(drop=True)
                 if sub.empty: continue
                 sub[['X', 'Y', '標籤']].to_excel(wr, sheet_name='全區進度圖', startcol=col, index=False)
-                mc = colors.get(s, pal[ci % len(pal)]); 
+                mc = colors.get(s, pal[ci % len(pal)])
                 if s not in colors: ci += 1
                 sd = {'name': s, 'categories': ['全區進度圖', 1, col, len(sub), col], 'values': ['全區進度圖', 1, col+1, len(sub), col+1], 'marker': {'type': 'circle', 'size': 6, 'fill': {'color': mc}, 'border': {'color': mc}}}
                 if s == '未完成': sd['marker']['fill'] = {'none': True}
