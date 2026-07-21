@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 import re
 import datetime
 import io
@@ -15,8 +17,8 @@ try:
 except ImportError:
     MATPLOTLIB_READY = False
 
-st.set_page_config(page_title="CDC結構預壘樁進度管理", layout="wide")
-st.title("🏗️ CDC結構預壘樁進度管理 ")
+st.set_page_config(page_title="CDC中間樁與共構樁進度管理", layout="wide")
+st.title("🏗️ CDC中間樁與共構樁進度管理")
 
 if 'sel_a' not in st.session_state:
     st.session_state.sel_a = []
@@ -53,7 +55,7 @@ def setup_chinese_font():
     return None
 
 @st.cache_data
-def load_base_data():
+def load_boundary_data():
     try:
         try:
             df = pd.read_csv('排樁座標.csv', encoding='utf-8')
@@ -65,14 +67,45 @@ def load_base_data():
         df['樁號'] = df[text_col].apply(lambda x: re.sub(r'\\[^;]+;|[{}]', '', str(x)).strip().upper())
         df = df[df['樁號'].str.match(r'^P\d+$')]
         df['數字'] = df['樁號'].str.extract(r'(\d+)').astype(int)
-        df = df[(df['數字'] >= 1) & (df['數字'] <= 613)]
         df['X'] = pd.to_numeric(df[x_col], errors='coerce')
         df['Y'] = pd.to_numeric(df[y_col], errors='coerce')
-        return df.drop_duplicates(subset=['樁號']).dropna(subset=['X', 'Y']).sort_values('數字')
+        return df.dropna(subset=['X', 'Y']).sort_values('數字')
+    except Exception as e:
+        return pd.DataFrame(columns=['X', 'Y', '數字'])
+
+@st.cache_data
+def load_base_data():
+    try:
+        try:
+            df = pd.read_csv('中間樁.csv', encoding='utf-8')
+        except:
+            df = pd.read_csv('中間樁.csv', encoding='big5')
+        
+        texts = df[df['名稱'].isin(['文字', '多行文字']) & df['內容'].notnull()][['內容', '位置 X', '位置 Y']].copy()
+        texts.rename(columns={'位置 X': 'X', '位置 Y': 'Y'}, inplace=True)
+        texts.dropna(subset=['X', 'Y'], inplace=True)
+
+        piles = df[df['名稱'] == 'HH3'][['位置 X', '位置 Y']].copy()
+        piles.rename(columns={'位置 X': 'X', '位置 Y': 'Y'}, inplace=True)
+        piles.dropna(subset=['X', 'Y'], inplace=True)
+
+        def get_nearest_text(px, py):
+            if len(texts) == 0: return "未命名"
+            dist = np.sqrt((texts['X'] - px)**2 + (texts['Y'] - py)**2)
+            nearest_idx = dist.idxmin()
+            if dist[nearest_idx] < 800:
+                return str(texts.loc[nearest_idx, '內容']).strip()
+            return "未命名"
+
+        piles['樁號'] = piles.apply(lambda row: get_nearest_text(row['X'], row['Y']), axis=1)
+        piles['樁號'] = piles['樁號'].astype(str)
+        piles['數字'] = piles['樁號'].str.extract(r'(\d+)').fillna(0).astype(int)
+        return piles.drop_duplicates(subset=['樁號']).dropna(subset=['X', 'Y']).sort_values('數字')
     except Exception as e:
         st.error(f"底圖載入失敗: {e}")
         return None
 
+df_boundary = load_boundary_data()
 df_base = load_base_data()
 
 def get_gs_connection():
@@ -162,9 +195,8 @@ if not df_history_full.empty:
 
 st.markdown("### 📝 進度登錄")
 c1, c2, c3 = st.columns([1, 1, 2])
-work_date = c1.date_input("日期")
-machine = c2.radio("機台", ["A車", "B車"], horizontal=True)
-mode = c3.radio("模式", ["4支一循環", "2支一循環", "連續施作"], horizontal=True)
+work_date = c1.date_input("日期"); machine = c2.radio("機台", ["A車", "B車"], horizontal=True)
+mode = c3.radio("模式", ["4支一循環", "2支一循環", "單支施作"], horizontal=True)
 step = 4 if "4支" in mode else (2 if "2支" in mode else 1)
 
 def save_data(piles):
@@ -175,8 +207,12 @@ def save_data(piles):
     for p in piles:
         p = p.upper().strip()
         if p not in df_history_full['樁號'].values:
-            seq += 1; b = df_base[df_base['樁號'] == p]
-            x, y = (b['X'].iloc[0], b['Y'].iloc[0]) if not b.empty else (0, 0)
+            seq += 1
+            if df_base is not None and not df_base.empty:
+                b = df_base[df_base['樁號'] == p]
+                x, y = (b['X'].iloc[0], b['Y'].iloc[0]) if not b.empty else (0, 0)
+            else:
+                x, y = 0, 0
             new_d.append([p, str(work_date), machine, int(seq), float(x), float(y)])
     if new_d:
         if demo_mode:
@@ -205,70 +241,36 @@ t1, t2 = st.tabs(["🎯 推算", "✏️ 手動"])
 with t1:
     with st.form("a"):
         cc1, cc2, cc3 = st.columns(3)
-        sp = cc1.number_input("起始 P", 1, 613, 1)
+        sp = cc1.number_input("起始號碼", 1, 253, 1)
         dr = cc2.radio("方向", ["遞增", "遞減"])
         ct = cc3.number_input("數量", 1, 100, 10)
-        
         if st.form_submit_button("執行登錄"):
-            plist = []
-            if 1 <= sp <= 499:
-                loop = list(range(1, 500))
-            elif 500 <= sp <= 548:
-                loop = list(range(500, 549))
-            elif 549 <= sp <= 613:
-                loop = list(range(549, 614))
-            else:
-                loop = list(range(1, 614))
-                
-            try:
-                cur_i = loop.index(sp)
-                for _ in range(int(ct)):
-                    plist.append(f"P{loop[cur_i]}")
-                    if dr == "遞增":
-                        cur_i = (cur_i + step) % len(loop)
-                    else:
-                        cur_i = (cur_i - step) % len(loop)
-                process_and_save(plist)
-            except ValueError:
-                st.error("起始樁號不在預期範圍內")
+            plist = []; cur = sp
+            for _ in range(int(ct)):
+                if 1 <= cur <= 253: plist.append(f"{cur}")
+                cur = cur + step if dr == "遞增" else cur - step
+            process_and_save(plist)
 
 with t2:
     with st.form("m"):
-        raw = st.text_input("區間 (如: 498-3, 610-550)")
-        
+        raw = st.text_input("區間 (支援直接輸入文字與數字)")
         if st.form_submit_button("執行登錄"):
             plist = []
             if raw:
-                pts = re.split(r'[,\s]+', re.sub(r'[pP]', '', raw))
+                pts = re.split(r'[,\s]+', raw)
                 for pt in pts:
-                    segment_list = []
                     if '-' in pt:
                         try:
                             s_idx, e_idx = map(int, pt.split('-'))
-                            if 1 <= s_idx <= 499:
-                                loop = list(range(1, 500))
-                            elif 500 <= s_idx <= 548:
-                                loop = list(range(500, 549))
-                            elif 549 <= s_idx <= 613:
-                                loop = list(range(549, 614))
+                            if s_idx <= e_idx:
+                                for n in range(s_idx, e_idx + 1): plist.append(f"{n}")
                             else:
-                                continue 
-                                
-                            s_i = loop.index(s_idx)
-                            current_i = s_i
-                            while True:
-                                segment_list.append(f"P{loop[current_i]}")
-                                if loop[current_i] == e_idx:
-                                    break
-                                current_i = (current_i + 1) % len(loop)
-                                if current_i == s_i: 
-                                    break
-                            plist.extend(segment_list[::step])
-                        except Exception:
-                            pass
-                    elif pt.isdigit(): 
-                        plist.append(f"P{pt}")
-            process_and_save(list(dict.fromkeys(plist)))
+                                for n in range(s_idx, 253 + 1): plist.append(f"{n}")
+                                for n in range(1, e_idx + 1): plist.append(f"{n}")
+                        except: pass
+                    else:
+                        plist.append(pt)
+            process_and_save(plist)
 
 st.divider()
 
@@ -280,7 +282,7 @@ selected_query_date = "最新進度 (預設)"
 if not df_history_full.empty:
     unique_dates = sorted(df_history_full['施工日期'].dropna().unique(), reverse=True)
     unique_dates.insert(0, "最新進度 (預設)")
-    selected_query_date = st.selectbox("選擇日期 (下方數據、地圖與報表將同步「時光倒流」至該日狀態)：", unique_dates, key="query_date_picker")
+    selected_query_date = st.selectbox("選擇日期 (下方數據、地圖與報表將同步時光倒流至該日狀態)：", unique_dates, key="query_date_picker")
     
     if selected_query_date != "最新進度 (預設)":
         target_dt = pd.to_datetime(selected_query_date)
@@ -295,7 +297,7 @@ if not df_history_full.empty:
             st.dataframe(df_date_filtered[['樁號', '機台', '施作順序', '施工日期']], use_container_width=True)
 
 total_done_auto = len(df_history_plot)
-total_perc = (total_done_auto / 613) * 100 if 613 > 0 else 0
+total_perc = (total_done_auto / 253) * 100 if 253 > 0 else 0
 today_done_auto_a = 0
 today_done_auto_b = 0
 cum_done_a = 0
@@ -327,6 +329,9 @@ if not df_history_plot.empty:
         week_start_str = f"{monday.year-1911}/{monday.month:02d}/{monday.day:02d}"
 
 def process_status_logic(df_hist, df_b):
+    if df_b is None or df_b.empty:
+        return pd.DataFrame(columns=['X', 'Y', '樁號', '狀態', '標籤', '純順序', 'is_horizontal'])
+        
     plot_df = df_b[['樁號', 'X', 'Y', '數字']].copy().sort_values('數字').reset_index(drop=True)
     dx = plot_df['X'].diff().bfill(); dy = plot_df['Y'].diff().bfill()
     dx_fwd = (plot_df['X'].shift(-1) - plot_df['X']).ffill(); dy_fwd = (plot_df['Y'].shift(-1) - plot_df['Y']).ffill()
@@ -350,7 +355,7 @@ def process_status_logic(df_hist, df_b):
 df_p = process_status_logic(df_history_plot, df_base)
 
 def get_local_stats(sel_list, p_df):
-    if not sel_list: return 0, 0
+    if not sel_list or p_df.empty: return 0, 0
     sub = p_df[p_df['樁號'].isin(sel_list)]
     total = len(sub)
     done = len(sub[sub['狀態'] != '未完成'])
@@ -360,9 +365,28 @@ local_a_done, local_a_total = get_local_stats(st.session_state.sel_a, df_p)
 local_b_done, local_b_total = get_local_stats(st.session_state.sel_b, df_p)
 
 st.divider()
-fig_web = px.scatter(df_p, x='X', y='Y', text='標籤', color='狀態', color_discrete_map={'未完成': '#696969', '[已完成]': '#FFB6C1'}, custom_data=['樁號'])
-fig_web.update_traces(selector=dict(name='未完成'), marker=dict(symbol='circle-open', size=16, line=dict(width=2, color='#A9A9A9')), textposition='top right')
-fig_web.update_traces(selector=lambda t: t.name != '未完成', marker=dict(symbol='circle', size=16, line=dict(width=1, color='white')), textposition='top right')
+
+if not df_p.empty:
+    fig_web = px.scatter(df_p, x='X', y='Y', text='標籤', color='狀態', color_discrete_map={'未完成': '#696969', '[已完成]': '#FFB6C1'}, custom_data=['樁號'])
+    fig_web.update_traces(selector=dict(name='未完成'), marker=dict(symbol='circle-open', size=16, line=dict(width=2, color='#A9A9A9')), textposition='top right')
+    fig_web.update_traces(selector=lambda t: t.name != '未完成', marker=dict(symbol='circle', size=16, line=dict(width=1, color='white')), textposition='top right')
+else:
+    fig_web = go.Figure()
+
+# 繪製排樁開挖邊界線 (三個獨立封閉循環)
+if not df_boundary.empty:
+    loops = [(1, 499), (500, 548), (549, 613)]
+    for start_num, end_num in loops:
+        loop_df = df_boundary[(df_boundary['數字'] >= start_num) & (df_boundary['數字'] <= end_num)].copy()
+        if not loop_df.empty:
+            # 複製第一個點接在最後面，形成封閉線框
+            loop_df = pd.concat([loop_df, loop_df.iloc[[0]]], ignore_index=True)
+            fig_web.add_trace(
+                go.Scatter(x=loop_df['X'], y=loop_df['Y'], mode='lines', 
+                           line=dict(color='#D3D3D3', width=2), 
+                           name='開挖邊界', hoverinfo='skip', showlegend=False)
+            )
+
 fig_web.update_layout(xaxis_visible=False, yaxis=dict(scaleanchor="x", scaleratio=1, visible=False), height=900, plot_bgcolor='white', dragmode='pan')
 
 st.subheader("🗺️ 網頁選取區 (框選或輸入以擷取局部圖)")
@@ -379,28 +403,19 @@ else:
 def parse_range_to_piles(raw_str):
     plist = []
     if raw_str:
-        pts = re.split(r'[,\s]+', re.sub(r'[pP]', '', raw_str))
+        pts = re.split(r'[,\s]+', raw_str)
         for pt in pts:
             if '-' in pt:
                 try:
                     s_idx, e_idx = map(int, pt.split('-'))
-                    if 1 <= s_idx <= 499: loop = list(range(1, 500))
-                    elif 500 <= s_idx <= 548: loop = list(range(500, 549))
-                    elif 549 <= s_idx <= 613: loop = list(range(549, 614))
-                    else: continue
-                    
-                    s_i = loop.index(s_idx)
-                    current_i = s_i
-                    while True:
-                        plist.append(f"P{loop[current_i]}")
-                        if loop[current_i] == e_idx:
-                            break
-                        current_i = (current_i + 1) % len(loop)
-                        if current_i == s_i: 
-                            break
-                except Exception: pass
-            elif pt.isdigit(): 
-                plist.append(f"P{pt}")
+                    if s_idx <= e_idx:
+                        for n in range(s_idx, e_idx + 1): plist.append(f"{n}")
+                    else:
+                        for n in range(s_idx, 253 + 1): plist.append(f"{n}")
+                        for n in range(1, e_idx + 1): plist.append(f"{n}")
+                except: pass
+            else:
+                plist.append(pt)
     return list(dict.fromkeys(plist)) 
 
 st.markdown("#### ⚙️ 分配 PDF 局部截圖範圍")
@@ -414,7 +429,7 @@ with c_btn1:
 
 with c_btn2:
     st.markdown("**👉 方式二：將【文字輸入】的範圍分配給**")
-    manual_raw = st.text_input("輸入樁號區間 (如: 498-3, 610-550)", label_visibility="collapsed")
+    manual_raw = st.text_input("輸入樁號區間 (如: 27-30, 26, 91)", label_visibility="collapsed")
     cb3, cb4 = st.columns(2)
     if cb3.button("📌 A機 (輸入)"): st.session_state.sel_a = parse_range_to_piles(manual_raw); st.rerun()
     if cb4.button("📌 B機 (輸入)"): st.session_state.sel_b = parse_range_to_piles(manual_raw); st.rerun()
@@ -425,7 +440,7 @@ with c_btn3:
 
 st.info(f"當前 PDF 暫存狀態：A機截圖區包含 {len(st.session_state.sel_a)} 支樁 | B機截圖區包含 {len(st.session_state.sel_b)} 支樁")
 
-if not df_history_plot.empty:
+if not df_history_plot.empty or not df_p.empty:
     st.sidebar.markdown("### 📄 PDF 報表文字內容")
     st.sidebar.text_input("右側主標題", key="pdf_loc_note_right")
     st.sidebar.text_input("左側副標題", key="pdf_loc_note_left")
@@ -512,10 +527,20 @@ if not df_history_plot.empty:
 
     if MATPLOTLIB_READY:
         def draw_pdf_axis(ax, target_df, global_df, scale_factor=1.0, is_main=False):
-            if target_df.empty: 
+            if target_df.empty and df_boundary.empty: 
                 ax.axis('off')
                 return
             
+            # 繪製 PDF 的排樁開挖邊界線 (三個獨立封閉循環)
+            if not df_boundary.empty:
+                loops = [(1, 499), (500, 548), (549, 613)]
+                for i, (start_num, end_num) in enumerate(loops):
+                    loop_df = df_boundary[(df_boundary['數字'] >= start_num) & (df_boundary['數字'] <= end_num)].copy()
+                    if not loop_df.empty:
+                        loop_df = pd.concat([loop_df, loop_df.iloc[[0]]], ignore_index=True)
+                        lbl = '開挖邊界' if is_main and i == 0 else None
+                        ax.plot(loop_df['X'], loop_df['Y'], color='#E0E0E0', linewidth=2, zorder=1, label=lbl)
+
             states = ['未完成', '[已完成]'] + sorted([s for s in global_df['狀態'].unique() if s not in ['未完成', '[已完成]']])
             colors = {'未完成': '#808080', '[已完成]': '#FFB6C1'}
             pal = px.colors.qualitative.Plotly
@@ -602,7 +627,7 @@ if not df_history_plot.empty:
                 f"該日完成 A機:{today_done_auto_a}支 B機:{today_done_auto_b}支",
                 f"選取區 A機:{local_a_done}/{local_a_total}{a_pct_str}",
                 f"    B機:{local_b_done}/{local_b_total}{b_pct_str}",
-                f"總累積完成 {total_done_auto} 支 ({total_done_auto}/613, {total_perc:.2f}%)",
+                f"總累積完成 {total_done_auto} 支 ({total_done_auto}/253, {total_perc:.2f}%)",
                 f"各別累積 A機:{cum_done_a}支 B機:{cum_done_b}支"
             ]
             fig.text(0.05, pos_title_y, f"{pdf_title_date} 施作進度回報", fontsize=50 * fig_scale, fontweight='bold')
