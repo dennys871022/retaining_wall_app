@@ -120,16 +120,12 @@ if not df_boundary.empty and not df_base.empty:
         x_mid1_raw = mid1_data.iloc[0]['X']
         y_mid1_raw = mid1_data.iloc[0]['Y']
         
-        # 依據提供條件計算中間樁 1 的目標座標
-        # 排樁 P1 座標向下 315cm (Y-315) 向右 616.74cm (X+616.74)
         x_mid1_target = x_p1 + 616.74
         y_mid1_target = y_p1 - 315.0
         
-        # 計算 X, Y 偏差值
         offset_x = x_mid1_target - x_mid1_raw
         offset_y = y_mid1_target - y_mid1_raw
         
-        # 平移所有中間樁座標
         df_base['X'] = df_base['X'] + offset_x
         df_base['Y'] = df_base['Y'] + offset_y
 # ==============================
@@ -400,7 +396,6 @@ if not df_p.empty:
 else:
     fig_web = go.Figure()
 
-# 繪製排樁開挖邊界線 (三個獨立封閉循環)
 if not df_boundary.empty:
     loops = [(1, 499), (500, 548), (549, 613)]
     for start_num, end_num in loops:
@@ -606,7 +601,20 @@ if not df_history_plot.empty or not df_p.empty:
                     elif is_main:
                         ax.scatter([], [], color=c, s=msize, zorder=3, label=legend_label)
                         
-            ax.margins(0.1); ax.set_aspect('equal', adjustable='datalim'); ax.axis('off')
+            ax.margins(0.1)
+            ax.set_aspect('equal', adjustable='datalim')
+            ax.axis('off')
+
+            # 針對局部圖表，動態縮放並裁切開挖邊界線
+            if not target_df.empty and len(target_df) < len(global_df):
+                x_min, x_max = target_df['X'].min(), target_df['X'].max()
+                y_min, y_max = target_df['Y'].min(), target_df['Y'].max()
+                
+                pad_x = max((x_max - x_min) * 0.2, 500)
+                pad_y = max((y_max - y_min) * 0.2, 500)
+                
+                ax.set_xlim(x_min - pad_x, x_max + pad_x)
+                ax.set_ylim(y_min - pad_y, y_max + pad_y)
 
         def create_pdf_figure():
             font_name = setup_chinese_font()
