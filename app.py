@@ -71,7 +71,7 @@ def load_boundary_data():
         df['Y'] = pd.to_numeric(df[y_col], errors='coerce')
         return df.dropna(subset=['X', 'Y']).sort_values('數字')
     except Exception as e:
-        return pd.DataFrame(columns=['X', 'Y', '數字'])
+        return pd.DataFrame(columns=['X', 'Y', '數字', '樁號'])
 
 @st.cache_data
 def load_base_data():
@@ -103,10 +103,36 @@ def load_base_data():
         return piles.drop_duplicates(subset=['樁號']).dropna(subset=['X', 'Y']).sort_values('數字')
     except Exception as e:
         st.error(f"底圖載入失敗: {e}")
-        return None
+        return pd.DataFrame(columns=['X', 'Y', '數字', '樁號'])
 
 df_boundary = load_boundary_data()
 df_base = load_base_data()
+
+# ===== 座標系統自動校正模組 =====
+if not df_boundary.empty and not df_base.empty:
+    p1_data = df_boundary[df_boundary['樁號'] == 'P1']
+    mid1_data = df_base[df_base['樁號'] == '1']
+    
+    if not p1_data.empty and not mid1_data.empty:
+        x_p1 = p1_data.iloc[0]['X']
+        y_p1 = p1_data.iloc[0]['Y']
+        
+        x_mid1_raw = mid1_data.iloc[0]['X']
+        y_mid1_raw = mid1_data.iloc[0]['Y']
+        
+        # 依據提供條件計算中間樁 1 的目標座標
+        # 排樁 P1 座標向下 315cm (Y-315) 向右 616.74cm (X+616.74)
+        x_mid1_target = x_p1 + 616.74
+        y_mid1_target = y_p1 - 315.0
+        
+        # 計算 X, Y 偏差值
+        offset_x = x_mid1_target - x_mid1_raw
+        offset_y = y_mid1_target - y_mid1_raw
+        
+        # 平移所有中間樁座標
+        df_base['X'] = df_base['X'] + offset_x
+        df_base['Y'] = df_base['Y'] + offset_y
+# ==============================
 
 def get_gs_connection():
     try:
@@ -115,7 +141,7 @@ def get_gs_connection():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         ss = client.open_by_url(st.secrets["sheet_url"])
-        sh_main = ss.worksheet("施工明細")
+        sh_main = ss.worksheet("中間樁施工明細")
         return ss, sh_main
     except Exception as e:
         st.error(f"雲端連線異常: {e}")
@@ -135,7 +161,7 @@ def load_settings(ss):
     }
     if ss is None: return default_settings
     try:
-        sh = ss.worksheet("系統設定")
+        sh = ss.worksheet("中間樁系統設定")
         records = sh.get_all_records()
         loaded = {}
         for r in records:
@@ -155,7 +181,7 @@ def load_settings(ss):
 def save_settings(ss, settings_dict):
     if ss is None: return
     try:
-        sh = ss.worksheet("系統設定")
+        sh = ss.worksheet("中間樁系統設定")
         sh.clear()
         out = [['Key', 'Value']]
         for k, v in settings_dict.items(): out.append([k, str(v)])
@@ -195,7 +221,8 @@ if not df_history_full.empty:
 
 st.markdown("### 📝 進度登錄")
 c1, c2, c3 = st.columns([1, 1, 2])
-work_date = c1.date_input("日期"); machine = c2.radio("機台", ["A車", "B車"], horizontal=True)
+work_date = c1.date_input("日期")
+machine = c2.radio("機台", ["A車", "B車"], horizontal=True)
 mode = c3.radio("模式", ["4支一循環", "2支一循環", "單支施作"], horizontal=True)
 step = 4 if "4支" in mode else (2 if "2支" in mode else 1)
 
@@ -379,7 +406,6 @@ if not df_boundary.empty:
     for start_num, end_num in loops:
         loop_df = df_boundary[(df_boundary['數字'] >= start_num) & (df_boundary['數字'] <= end_num)].copy()
         if not loop_df.empty:
-            # 複製第一個點接在最後面，形成封閉線框
             loop_df = pd.concat([loop_df, loop_df.iloc[[0]]], ignore_index=True)
             fig_web.add_trace(
                 go.Scatter(x=loop_df['X'], y=loop_df['Y'], mode='lines', 
@@ -531,7 +557,6 @@ if not df_history_plot.empty or not df_p.empty:
                 ax.axis('off')
                 return
             
-            # 繪製 PDF 的排樁開挖邊界線 (三個獨立封閉循環)
             if not df_boundary.empty:
                 loops = [(1, 499), (500, 548), (549, 613)]
                 for i, (start_num, end_num) in enumerate(loops):
