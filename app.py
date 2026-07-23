@@ -98,55 +98,51 @@ def load_base_data():
             return "未命名"
 
         piles['樁號'] = piles.apply(lambda row: get_nearest_text(row['X'], row['Y']), axis=1)
-        piles['樁號'] = piles['樁號'].astype(str)
+        piles['樁號'] = piles['樁號'].astype(str).str.strip()
         piles['數字'] = piles['樁號'].str.extract(r'(\d+)').fillna(0).astype(int)
         
-        # === 動態補入缺漏的 9 支樁 (依照使用者圖示精準校正) ===
+        # === 動態補入缺漏的 9 支樁 (精準對齊 CAD 圖比例) ===
         try:
-            # 抓取極左與極右座標
-            x_left = piles['X'].min()
-            x_right = piles['X'].max()
+            ref_115_y = piles.loc[piles['樁號'] == '115', 'Y'].values[0] if not piles[piles['樁號'] == '115'].empty else piles['Y'].max() - 1000
+            ref_138_x = piles.loc[piles['樁號'] == '138', 'X'].values[0] if not piles[piles['樁號'] == '138'].empty else piles['X'].min()
+            ref_138_y = piles.loc[piles['樁號'] == '138', 'Y'].values[0] if not piles[piles['樁號'] == '138'].empty else piles['Y'].max() - 2000
             
-            # 抓取對齊用的 Y 座標 (防呆機制：若抓不到改用估算值)
-            y_115 = piles.loc[piles['樁號'] == '115', 'Y'].values[0] if not piles[piles['樁號'] == '115'].empty else piles['Y'].min() + 4000
-            y_138 = piles.loc[piles['樁號'] == '138', 'Y'].values[0] if not piles[piles['樁號'] == '138'].empty else piles['Y'].min() + 3000
-            y_175 = piles.loc[piles['樁號'] == '175', 'Y'].values[0] if not piles[piles['樁號'] == '175'].empty else piles['Y'].min() + 2000
-            y_196 = piles.loc[piles['樁號'] == '196', 'Y'].values[0] if not piles[piles['樁號'] == '196'].empty else piles['Y'].min() + 1000
+            ref_158_x = piles.loc[piles['樁號'] == '158', 'X'].values[0] if not piles[piles['樁號'] == '158'].empty else piles['X'].max()
+            ref_158_y = piles.loc[piles['樁號'] == '158', 'Y'].values[0] if not piles[piles['樁號'] == '158'].empty else piles['Y'].max() - 1000
+            ref_195_y = piles.loc[piles['樁號'] == '195', 'Y'].values[0] if not piles[piles['樁號'] == '195'].empty else piles['Y'].max() - 2000
             
-            y_158 = piles.loc[piles['樁號'] == '158', 'Y'].values[0] if not piles[piles['樁號'] == '158'].empty else piles['Y'].min() + 4000
-            y_195 = piles.loc[piles['樁號'] == '195', 'Y'].values[0] if not piles[piles['樁號'] == '195'].empty else piles['Y'].min() + 2000
-            y_235 = piles.loc[piles['樁號'] == '235', 'Y'].values[0] if not piles[piles['樁號'] == '235'].empty else piles['Y'].min() + 500
         except Exception:
-            pass
+            ref_138_x, ref_138_y, ref_115_y = 0, 0, 0
+            ref_158_x, ref_158_y, ref_195_y = 0, 0, 0
 
-        # 滯洪池 A (A1-A3) 往「右邊」推 (X 增加 1200)
-        a_x = x_right + 1200
+        a_x = ref_158_x + 800  
+        a1_y = ref_158_y - 200 
+        a2_y = ref_158_y - 800 
+        a3_y = ref_195_y - 200 
         
-        # 滯洪池 B.C 往「左邊」推 (X 減少)
-        bc_x_right = x_left - 800  # 靠內側的那直排 (紅字 1, 2, 4, 6)
-        bc_x_left = x_left - 1400  # 靠外側的那直排 (紅字 3, 5)
+        bc_x_left = ref_138_x + 600   
+        bc_x_right = ref_138_x + 1200 
+        
+        bc_y_top = ref_115_y - 300    
+        bc_y_mid = ref_138_y          
+        bc_y_bot = ref_138_y - 600    
 
         extra_piles = pd.DataFrame({
             'X': [
-                a_x, a_x, a_x,                      # A1, A2, A3
-                bc_x_right, bc_x_right,             # BC1 (紅1), BC2 (紅2)
-                bc_x_left, bc_x_right,              # BC3 (紅3), BC4 (紅4)
-                bc_x_left, bc_x_right               # BC5 (紅5), BC6 (紅6)
+                a_x, a_x, a_x,                      
+                bc_x_right, bc_x_left,              
+                bc_x_right, bc_x_left,              
+                bc_x_right, bc_x_left               
             ],
             'Y': [
-                y_158 - 300,                        # A1
-                y_195 + 300,                        # A2
-                y_235 + 300,                        # A3
-                y_115 - 300,                        # BC1 (紅1)
-                y_138,                              # BC2 (紅2)
-                y_175,                              # BC3 (紅3)
-                y_175,                              # BC4 (紅4)
-                y_196,                              # BC5 (紅5)
-                y_196                               # BC6 (紅6)
+                a1_y, a2_y, a3_y,                   
+                bc_y_top, bc_y_top,                 
+                bc_y_mid, bc_y_mid,                 
+                bc_y_bot, bc_y_bot                  
             ],
             '樁型': ['中間樁'] * 9,
-            '樁號': ['A1', 'A2', 'A3', 'BC1', 'BC2', 'BC3', 'BC4', 'BC5', 'BC6'],
-            '數字': [254, 255, 256, 257, 258, 259, 260, 261, 262]
+            '樁號': ['A1', 'A2', 'A3', 'BC1', 'BC6', 'BC3', 'BC2', 'BC5', 'BC4'],
+            '數字': [254, 255, 256, 257, 262, 259, 258, 261, 260] 
         })
         piles = pd.concat([piles, extra_piles], ignore_index=True)
         # ==========================
