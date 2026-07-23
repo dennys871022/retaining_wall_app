@@ -101,45 +101,52 @@ def load_base_data():
         piles['樁號'] = piles['樁號'].astype(str)
         piles['數字'] = piles['樁號'].str.extract(r'(\d+)').fillna(0).astype(int)
         
-        # === 動態補入缺漏的 9 支樁 ===
+        # === 動態補入缺漏的 9 支樁 (依照使用者圖示精準校正) ===
         try:
-            ref_138_x = piles[piles['樁號'] == '138']['X'].iloc[0]
-            ref_138_y = piles[piles['樁號'] == '138']['Y'].iloc[0]
-            ref_158_x = piles[piles['樁號'] == '158']['X'].iloc[0]
-            ref_158_y = piles[piles['樁號'] == '158']['Y'].iloc[0]
-            grid_x = 600
-            grid_y = 600
-        except:
-            ref_138_x, ref_138_y = piles['X'].min(), piles['Y'].min() + 3000
-            ref_158_x, ref_158_y = piles['X'].max(), piles['Y'].max() - 3000
-            grid_x, grid_y = 600, 600
+            # 抓取極左與極右座標
+            x_left = piles['X'].min()
+            x_right = piles['X'].max()
+            
+            # 抓取對齊用的 Y 座標 (防呆機制：若抓不到改用估算值)
+            y_115 = piles.loc[piles['樁號'] == '115', 'Y'].values[0] if not piles[piles['樁號'] == '115'].empty else piles['Y'].min() + 4000
+            y_138 = piles.loc[piles['樁號'] == '138', 'Y'].values[0] if not piles[piles['樁號'] == '138'].empty else piles['Y'].min() + 3000
+            y_175 = piles.loc[piles['樁號'] == '175', 'Y'].values[0] if not piles[piles['樁號'] == '175'].empty else piles['Y'].min() + 2000
+            y_196 = piles.loc[piles['樁號'] == '196', 'Y'].values[0] if not piles[piles['樁號'] == '196'].empty else piles['Y'].min() + 1000
+            
+            y_158 = piles.loc[piles['樁號'] == '158', 'Y'].values[0] if not piles[piles['樁號'] == '158'].empty else piles['Y'].min() + 4000
+            y_195 = piles.loc[piles['樁號'] == '195', 'Y'].values[0] if not piles[piles['樁號'] == '195'].empty else piles['Y'].min() + 2000
+            y_235 = piles.loc[piles['樁號'] == '235', 'Y'].values[0] if not piles[piles['樁號'] == '235'].empty else piles['Y'].min() + 500
+        except Exception:
+            pass
+
+        # 滯洪池 A (A1-A3) 往「右邊」推 (X 增加 1200)
+        a_x = x_right + 1200
+        
+        # 滯洪池 B.C 往「左邊」推 (X 減少)
+        bc_x_right = x_left - 800  # 靠內側的那直排 (紅字 1, 2, 4, 6)
+        bc_x_left = x_left - 1400  # 靠外側的那直排 (紅字 3, 5)
 
         extra_piles = pd.DataFrame({
             'X': [
-                ref_158_x + grid_x * 0.8,
-                ref_158_x + grid_x * 0.8,
-                ref_158_x + grid_x * 0.8,
-                ref_138_x + grid_x * 1.5,
-                ref_138_x + grid_x * 1.5,
-                ref_138_x + grid_x * 1.5,
-                ref_138_x + grid_x * 0.5,
-                ref_138_x + grid_x * 0.5,
-                ref_138_x + grid_x * 0.5
+                a_x, a_x, a_x,                      # A1, A2, A3
+                bc_x_right, bc_x_right,             # BC1 (紅1), BC2 (紅2)
+                bc_x_left, bc_x_right,              # BC3 (紅3), BC4 (紅4)
+                bc_x_left, bc_x_right               # BC5 (紅5), BC6 (紅6)
             ],
             'Y': [
-                ref_158_y - grid_y * 0.5,
-                ref_158_y - grid_y * 1.5,
-                ref_158_y - grid_y * 2.5,
-                ref_138_y,
-                ref_138_y - grid_y * 1.0,
-                ref_138_y - grid_y * 2.0,
-                ref_138_y,
-                ref_138_y - grid_y * 1.0,
-                ref_138_y - grid_y * 2.0
+                y_158 - 300,                        # A1
+                y_195 + 300,                        # A2
+                y_235 + 300,                        # A3
+                y_115 - 300,                        # BC1 (紅1)
+                y_138,                              # BC2 (紅2)
+                y_175,                              # BC3 (紅3)
+                y_175,                              # BC4 (紅4)
+                y_196,                              # BC5 (紅5)
+                y_196                               # BC6 (紅6)
             ],
             '樁型': ['中間樁'] * 9,
-            '樁號': ['A1', 'A2', 'A3', 'BC1', 'BC3', 'BC5', 'BC6', 'BC2', 'BC4'],
-            '數字': [254, 255, 256, 257, 259, 261, 262, 258, 260]
+            '樁號': ['A1', 'A2', 'A3', 'BC1', 'BC2', 'BC3', 'BC4', 'BC5', 'BC6'],
+            '數字': [254, 255, 256, 257, 258, 259, 260, 261, 262]
         })
         piles = pd.concat([piles, extra_piles], ignore_index=True)
         # ==========================
