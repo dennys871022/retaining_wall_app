@@ -101,35 +101,48 @@ def load_base_data():
         piles['樁號'] = piles['樁號'].astype(str)
         piles['數字'] = piles['樁號'].str.extract(r'(\d+)').fillna(0).astype(int)
         
-        min_x, max_x = piles['X'].min(), piles['X'].max()
-        min_y = piles['Y'].min()
-        
+        # === 動態補入缺漏的 9 支樁 ===
+        try:
+            ref_138_x = piles[piles['樁號'] == '138']['X'].iloc[0]
+            ref_138_y = piles[piles['樁號'] == '138']['Y'].iloc[0]
+            ref_158_x = piles[piles['樁號'] == '158']['X'].iloc[0]
+            ref_158_y = piles[piles['樁號'] == '158']['Y'].iloc[0]
+            grid_x = 600
+            grid_y = 600
+        except:
+            ref_138_x, ref_138_y = piles['X'].min(), piles['Y'].min() + 3000
+            ref_158_x, ref_158_y = piles['X'].max(), piles['Y'].max() - 3000
+            grid_x, grid_y = 600, 600
+
         extra_piles = pd.DataFrame({
             'X': [
-                max_x - 150, max_x - 150, max_x - 150,
-                min_x + 500, min_x + 1100, 
-                min_x + 500, min_x + 1100,
-                min_x + 500, min_x + 1100
+                ref_158_x + grid_x * 0.8,
+                ref_158_x + grid_x * 0.8,
+                ref_158_x + grid_x * 0.8,
+                ref_138_x + grid_x * 1.5,
+                ref_138_x + grid_x * 1.5,
+                ref_138_x + grid_x * 1.5,
+                ref_138_x + grid_x * 0.5,
+                ref_138_x + grid_x * 0.5,
+                ref_138_x + grid_x * 0.5
             ],
             'Y': [
-                min_y + 1900, min_y + 1300, min_y + 700,
-                min_y + 1700, min_y + 2300, 
-                min_y + 1100, min_y + 1700, 
-                min_y + 500,  min_y + 1100  
+                ref_158_y - grid_y * 0.5,
+                ref_158_y - grid_y * 1.5,
+                ref_158_y - grid_y * 2.5,
+                ref_138_y,
+                ref_138_y - grid_y * 1.0,
+                ref_138_y - grid_y * 2.0,
+                ref_138_y,
+                ref_138_y - grid_y * 1.0,
+                ref_138_y - grid_y * 2.0
             ],
             '樁型': ['中間樁'] * 9,
-            '樁號': ['A1', 'A2', 'A3', 'BC1', 'BC2', 'BC3', 'BC4', 'BC5', 'BC6'],
-            '數字': [254, 255, 256, 257, 258, 259, 260, 261, 262]
+            '樁號': ['A1', 'A2', 'A3', 'BC1', 'BC3', 'BC5', 'BC6', 'BC2', 'BC4'],
+            '數字': [254, 255, 256, 257, 259, 261, 262, 258, 260]
         })
-        
-        extra_piles.loc[3, 'X'] = min_x + 1100; extra_piles.loc[3, 'Y'] = min_y + 2100 
-        extra_piles.loc[4, 'X'] = min_x + 500;  extra_piles.loc[4, 'Y'] = min_y + 1300 
-        extra_piles.loc[5, 'X'] = min_x + 1100; extra_piles.loc[5, 'Y'] = min_y + 1300 
-        extra_piles.loc[6, 'X'] = min_x + 500;  extra_piles.loc[6, 'Y'] = min_y + 500  
-        extra_piles.loc[7, 'X'] = min_x + 1100; extra_piles.loc[7, 'Y'] = min_y + 500  
-        extra_piles.loc[8, 'X'] = min_x + 500;  extra_piles.loc[8, 'Y'] = min_y + 2100 
-
         piles = pd.concat([piles, extra_piles], ignore_index=True)
+        # ==========================
         
         return piles.drop_duplicates(subset=['樁號']).dropna(subset=['X', 'Y']).sort_values('數字')
     except Exception as e:
@@ -139,6 +152,7 @@ def load_base_data():
 df_boundary = load_boundary_data()
 df_base = load_base_data()
 
+# ===== 座標系統自動校正模組 =====
 if not df_boundary.empty and not df_base.empty:
     p1_data = df_boundary[df_boundary['樁號'] == 'P1']
     mid1_data = df_base[df_base['樁號'] == '1']
@@ -158,6 +172,7 @@ if not df_boundary.empty and not df_base.empty:
         
         df_base['X'] = df_base['X'] + offset_x
         df_base['Y'] = df_base['Y'] + offset_y
+# ==============================
 
 def get_gs_connection():
     try:
