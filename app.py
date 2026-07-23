@@ -100,6 +100,31 @@ def load_base_data():
         piles['樁號'] = piles.apply(lambda row: get_nearest_text(row['X'], row['Y']), axis=1)
         piles['樁號'] = piles['樁號'].astype(str)
         piles['數字'] = piles['樁號'].str.extract(r'(\d+)').fillna(0).astype(int)
+        
+        # === 動態補入缺漏的 9 支樁 ===
+        min_x, max_x = piles['X'].min(), piles['X'].max()
+        min_y = piles['Y'].min()
+        
+        extra_piles = pd.DataFrame({
+            'X': [
+                max_x - 400, max_x - 400, max_x - 400,          # A1-A3
+                min_x + 500, min_x + 1200,                      # BC1, BC2
+                min_x + 500, min_x + 1200,                      # BC3, BC4
+                min_x + 500, min_x + 1200                       # BC5, BC6
+            ],
+            'Y': [
+                min_y + 2000, min_y + 1200, min_y + 400,        # A1-A3
+                min_y + 2000, min_y + 2000,                     # BC1, BC2
+                min_y + 1200, min_y + 1200,                     # BC3, BC4
+                min_y + 400,  min_y + 400                       # BC5, BC6
+            ],
+            '樁型': ['中間樁'] * 9,
+            '樁號': ['A1', 'A2', 'A3', 'BC1', 'BC2', 'BC3', 'BC4', 'BC5', 'BC6'],
+            '數字': [254, 255, 256, 257, 258, 259, 260, 261, 262] # 賦予排序尾號
+        })
+        piles = pd.concat([piles, extra_piles], ignore_index=True)
+        # ==========================
+        
         return piles.drop_duplicates(subset=['樁號']).dropna(subset=['X', 'Y']).sort_values('數字')
     except Exception as e:
         st.error(f"底圖載入失敗: {e}")
@@ -264,35 +289,46 @@ t1, t2 = st.tabs(["🎯 推算", "✏️ 手動"])
 with t1:
     with st.form("a"):
         cc1, cc2, cc3 = st.columns(3)
-        sp = cc1.number_input("起始號碼", 1, 253, 1)
+        sp = cc1.number_input("起始號碼", 1, 262, 1)
         dr = cc2.radio("方向", ["遞增", "遞減"])
         ct = cc3.number_input("數量", 1, 100, 10)
         if st.form_submit_button("執行登錄"):
             plist = []; cur = sp
             for _ in range(int(ct)):
-                if 1 <= cur <= 253: plist.append(f"{cur}")
+                if 1 <= cur <= 262: plist.append(f"{cur}")
                 cur = cur + step if dr == "遞增" else cur - step
             process_and_save(plist)
 
 with t2:
     with st.form("m"):
-        raw = st.text_input("區間 (支援直接輸入文字與數字)")
+        raw = st.text_input("區間 (支援直接輸入文字與數字，例如 A1-A3, BC1-BC6)")
         if st.form_submit_button("執行登錄"):
             plist = []
             if raw:
                 pts = re.split(r'[,\s]+', raw)
                 for pt in pts:
                     if '-' in pt:
-                        try:
-                            s_idx, e_idx = map(int, pt.split('-'))
-                            if s_idx <= e_idx:
-                                for n in range(s_idx, e_idx + 1): plist.append(f"{n}")
-                            else:
-                                for n in range(s_idx, 253 + 1): plist.append(f"{n}")
-                                for n in range(1, e_idx + 1): plist.append(f"{n}")
-                        except: pass
+                        if pt.upper().startswith('A'):
+                            try:
+                                s, e = map(int, pt.upper().replace('A', '').split('-'))
+                                for n in range(min(s, e), max(s, e) + 1): plist.append(f"A{n}")
+                            except: pass
+                        elif pt.upper().startswith('BC'):
+                            try:
+                                s, e = map(int, pt.upper().replace('BC', '').split('-'))
+                                for n in range(min(s, e), max(s, e) + 1): plist.append(f"BC{n}")
+                            except: pass
+                        else:
+                            try:
+                                s_idx, e_idx = map(int, pt.split('-'))
+                                if s_idx <= e_idx:
+                                    for n in range(s_idx, e_idx + 1): plist.append(f"{n}")
+                                else:
+                                    for n in range(s_idx, 262 + 1): plist.append(f"{n}")
+                                    for n in range(1, e_idx + 1): plist.append(f"{n}")
+                            except: pass
                     else:
-                        plist.append(pt)
+                        plist.append(pt.upper())
             process_and_save(plist)
 
 st.divider()
@@ -320,7 +356,7 @@ if not df_history_full.empty:
             st.dataframe(df_date_filtered[['樁號', '機台', '施作順序', '施工日期']], use_container_width=True)
 
 total_done_auto = len(df_history_plot)
-total_perc = (total_done_auto / 253) * 100 if 253 > 0 else 0
+total_perc = (total_done_auto / 262) * 100 if 262 > 0 else 0
 today_done_auto_a = 0
 today_done_auto_b = 0
 cum_done_a = 0
@@ -421,22 +457,33 @@ if selected_piles:
 else:
     st.caption("💡 提示：請在地圖上方拉框選取，或直接使用下方文字輸入範圍。")
 
-def parse_range_to_piles(raw_str):
+def parse_range_to_piles_pdf(raw_str):
     plist = []
     if raw_str:
         pts = re.split(r'[,\s]+', raw_str)
         for pt in pts:
             if '-' in pt:
-                try:
-                    s_idx, e_idx = map(int, pt.split('-'))
-                    if s_idx <= e_idx:
-                        for n in range(s_idx, e_idx + 1): plist.append(f"{n}")
-                    else:
-                        for n in range(s_idx, 253 + 1): plist.append(f"{n}")
-                        for n in range(1, e_idx + 1): plist.append(f"{n}")
-                except: pass
+                if pt.upper().startswith('A'):
+                    try:
+                        s, e = map(int, pt.upper().replace('A', '').split('-'))
+                        for n in range(min(s, e), max(s, e) + 1): plist.append(f"A{n}")
+                    except: pass
+                elif pt.upper().startswith('BC'):
+                    try:
+                        s, e = map(int, pt.upper().replace('BC', '').split('-'))
+                        for n in range(min(s, e), max(s, e) + 1): plist.append(f"BC{n}")
+                    except: pass
+                else:
+                    try:
+                        s_idx, e_idx = map(int, pt.split('-'))
+                        if s_idx <= e_idx:
+                            for n in range(s_idx, e_idx + 1): plist.append(f"{n}")
+                        else:
+                            for n in range(s_idx, 262 + 1): plist.append(f"{n}")
+                            for n in range(1, e_idx + 1): plist.append(f"{n}")
+                    except: pass
             else:
-                plist.append(pt)
+                plist.append(pt.upper())
     return list(dict.fromkeys(plist)) 
 
 st.markdown("#### ⚙️ 分配 PDF 局部截圖範圍")
@@ -450,10 +497,10 @@ with c_btn1:
 
 with c_btn2:
     st.markdown("**👉 方式二：將【文字輸入】的範圍分配給**")
-    manual_raw = st.text_input("輸入樁號區間 (如: 27-30, 26, 91)", label_visibility="collapsed")
+    manual_raw = st.text_input("輸入樁號區間 (如: 27-30, BC1-BC6, A1)", label_visibility="collapsed")
     cb3, cb4 = st.columns(2)
-    if cb3.button("📌 A機 (輸入)"): st.session_state.sel_a = parse_range_to_piles(manual_raw); st.rerun()
-    if cb4.button("📌 B機 (輸入)"): st.session_state.sel_b = parse_range_to_piles(manual_raw); st.rerun()
+    if cb3.button("📌 A機 (輸入)"): st.session_state.sel_a = parse_range_to_piles_pdf(manual_raw); st.rerun()
+    if cb4.button("📌 B機 (輸入)"): st.session_state.sel_b = parse_range_to_piles_pdf(manual_raw); st.rerun()
 
 with c_btn3:
     st.markdown("**🗑️ 重新設定**")
@@ -552,14 +599,41 @@ if not df_history_plot.empty or not df_p.empty:
                 ax.axis('off')
                 return
             
-            if not df_boundary.empty:
-                loops = [(1, 499), (500, 548), (549, 613)]
-                for i, (start_num, end_num) in enumerate(loops):
-                    loop_df = df_boundary[(df_boundary['數字'] >= start_num) & (df_boundary['數字'] <= end_num)].copy()
-                    if not loop_df.empty:
-                        loop_df = pd.concat([loop_df, loop_df.iloc[[0]]], ignore_index=True)
-                        lbl = '開挖邊界' if is_main and i == 0 else None
-                        ax.plot(loop_df['X'], loop_df['Y'], color='#E0E0E0', linewidth=2, zorder=1, label=lbl)
+            # --- 動態裁切開挖邊界線 (避免局部圖被拉回全區視角) ---
+            if not target_df.empty and len(target_df) < len(global_df):
+                x_min, x_max = target_df['X'].min(), target_df['X'].max()
+                y_min, y_max = target_df['Y'].min(), target_df['Y'].max()
+                pad_x = max((x_max - x_min) * 0.2, 500)
+                pad_y = max((y_max - y_min) * 0.2, 500)
+                
+                if not df_boundary.empty:
+                    loops = [(1, 499), (500, 548), (549, 613)]
+                    for i, (start_num, end_num) in enumerate(loops):
+                        loop_df = df_boundary[(df_boundary['數字'] >= start_num) & (df_boundary['數字'] <= end_num)].copy()
+                        if not loop_df.empty:
+                            loop_df = pd.concat([loop_df, loop_df.iloc[[0]]], ignore_index=True)
+                            
+                            # 過濾只保留在當前截圖範圍內的排樁邊界
+                            mask = (loop_df['X'] >= x_min - pad_x) & (loop_df['X'] <= x_max + pad_x) & \
+                                   (loop_df['Y'] >= y_min - pad_y) & (loop_df['Y'] <= y_max + pad_y)
+                            
+                            if mask.any():
+                                lbl = '開挖邊界' if is_main and i == 0 else None
+                                ax.plot(loop_df['X'], loop_df['Y'], color='#E0E0E0', linewidth=2, zorder=1, label=lbl)
+                
+                # 鎖定 Matplotlib 的繪圖視角 (Bounding Box)
+                ax.set_xlim(x_min - pad_x, x_max + pad_x)
+                ax.set_ylim(y_min - pad_y, y_max + pad_y)
+            else:
+                # 繪製全區排樁邊界
+                if not df_boundary.empty:
+                    loops = [(1, 499), (500, 548), (549, 613)]
+                    for i, (start_num, end_num) in enumerate(loops):
+                        loop_df = df_boundary[(df_boundary['數字'] >= start_num) & (df_boundary['數字'] <= end_num)].copy()
+                        if not loop_df.empty:
+                            loop_df = pd.concat([loop_df, loop_df.iloc[[0]]], ignore_index=True)
+                            lbl = '開挖邊界' if is_main and i == 0 else None
+                            ax.plot(loop_df['X'], loop_df['Y'], color='#E0E0E0', linewidth=2, zorder=1, label=lbl)
 
             states = ['未完成', '[已完成]'] + sorted([s for s in global_df['狀態'].unique() if s not in ['未完成', '[已完成]']])
             colors = {'未完成': '#808080', '[已完成]': '#FFB6C1'}
@@ -605,17 +679,6 @@ if not df_history_plot.empty or not df_p.empty:
             ax.set_aspect('equal', adjustable='datalim')
             ax.axis('off')
 
-            # 針對局部圖表，動態縮放並裁切開挖邊界線
-            if not target_df.empty and len(target_df) < len(global_df):
-                x_min, x_max = target_df['X'].min(), target_df['X'].max()
-                y_min, y_max = target_df['Y'].min(), target_df['Y'].max()
-                
-                pad_x = max((x_max - x_min) * 0.2, 500)
-                pad_y = max((y_max - y_min) * 0.2, 500)
-                
-                ax.set_xlim(x_min - pad_x, x_max + pad_x)
-                ax.set_ylim(y_min - pad_y, y_max + pad_y)
-
         def create_pdf_figure():
             font_name = setup_chinese_font()
             if font_name: plt.rcParams['font.family'] = font_name
@@ -660,7 +723,7 @@ if not df_history_plot.empty or not df_p.empty:
                 f"該日完成 A機:{today_done_auto_a}支 B機:{today_done_auto_b}支",
                 f"選取區 A機:{local_a_done}/{local_a_total}{a_pct_str}",
                 f"    B機:{local_b_done}/{local_b_total}{b_pct_str}",
-                f"總累積完成 {total_done_auto} 支 ({total_done_auto}/253, {total_perc:.2f}%)",
+                f"總累積完成 {total_done_auto} 支 ({total_done_auto}/262, {total_perc:.2f}%)",
                 f"各別累積 A機:{cum_done_a}支 B機:{cum_done_b}支"
             ]
             fig.text(0.05, pos_title_y, f"{pdf_title_date} 施作進度回報", fontsize=50 * fig_scale, fontweight='bold')
