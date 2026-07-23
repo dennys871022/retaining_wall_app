@@ -124,8 +124,8 @@ def load_base_data():
         a2_y = ref_235_y         
         a3_y = ref_253_y - 450   
         
-        bc_x_left = x_left - 1200   
-        bc_x_right = x_left - 600 
+        bc_x_left = x_left - 2000   
+        bc_x_right = x_left - 1000 
         
         bc1_y = ref_58_y
         bc2_y = ref_92_y
