@@ -102,50 +102,54 @@ def load_base_data():
         piles['數字'] = piles['樁號'].str.extract(r'(\d+)').fillna(0).astype(int)
         
         try:
-            ref_115_y = piles.loc[piles['樁號'] == '115', 'Y'].values[0] if not piles[piles['樁號'] == '115'].empty else piles['Y'].max() - 1000
-            ref_138_x = piles.loc[piles['樁號'] == '138', 'X'].values[0] if not piles[piles['樁號'] == '138'].empty else piles['X'].min()
-            ref_138_y = piles.loc[piles['樁號'] == '138', 'Y'].values[0] if not piles[piles['樁號'] == '138'].empty else piles['Y'].max() - 2000
+            x_left = piles['X'].min()
+            
+            ref_58_y = piles.loc[piles['樁號'] == '58', 'Y'].values[0] if not piles[piles['樁號'] == '58'].empty else piles['Y'].max() - 500
+            ref_92_y = piles.loc[piles['樁號'] == '92', 'Y'].values[0] if not piles[piles['樁號'] == '92'].empty else piles['Y'].max() - 1000
+            ref_115_y = piles.loc[piles['樁號'] == '115', 'Y'].values[0] if not piles[piles['樁號'] == '115'].empty else piles['Y'].max() - 1500
+            ref_175_y = piles.loc[piles['樁號'] == '175', 'Y'].values[0] if not piles[piles['樁號'] == '175'].empty else piles['Y'].min() + 1000
             
             ref_158_x = piles.loc[piles['樁號'] == '158', 'X'].values[0] if not piles[piles['樁號'] == '158'].empty else piles['X'].max()
-            
-            # 修正 A 區的高度基準點：改抓 217, 235, 253 樁位的高度
             ref_217_y = piles.loc[piles['樁號'] == '217', 'Y'].values[0] if not piles[piles['樁號'] == '217'].empty else piles['Y'].min() + 1000
             ref_235_y = piles.loc[piles['樁號'] == '235', 'Y'].values[0] if not piles[piles['樁號'] == '235'].empty else piles['Y'].min() + 500
             ref_253_y = piles.loc[piles['樁號'] == '253', 'Y'].values[0] if not piles[piles['樁號'] == '253'].empty else piles['Y'].min()
             
         except Exception:
-            ref_138_x, ref_138_y, ref_115_y = 0, 0, 0
+            x_left = 0
+            ref_58_y, ref_92_y, ref_115_y, ref_175_y = 0, 0, 0, 0
             ref_158_x, ref_217_y, ref_235_y, ref_253_y = 0, 0, 0, 0
 
-        # 重新計算 A1~A3 高度
         a_x = ref_158_x + 800  
-        a1_y = ref_217_y         # A1 降下來對齊 217
-        a2_y = ref_235_y         # A2 對齊 235
-        a3_y = ref_253_y - 450   # A3 放在 253 下方
+        a1_y = ref_217_y         
+        a2_y = ref_235_y         
+        a3_y = ref_253_y - 450   
         
-        bc_x_left = ref_138_x + 600   
-        bc_x_right = ref_138_x + 1200 
+        bc_x_left = x_left - 1200   
+        bc_x_right = x_left - 600 
         
-        bc_y_top = ref_115_y - 300    
-        bc_y_mid = ref_138_y          
-        bc_y_bot = ref_138_y - 600    
+        bc1_y = ref_58_y
+        bc2_y = ref_92_y
+        bc3_y = ref_115_y
+        bc4_y = ref_115_y
+        bc5_y = ref_175_y + 300  
+        bc6_y = ref_175_y + 300  
 
         extra_piles = pd.DataFrame({
             'X': [
                 a_x, a_x, a_x,                      
-                bc_x_right, bc_x_left,              
-                bc_x_right, bc_x_left,              
-                bc_x_right, bc_x_left               
+                bc_x_right, bc_x_right,             
+                bc_x_left, bc_x_right,              
+                bc_x_left, bc_x_right               
             ],
             'Y': [
                 a1_y, a2_y, a3_y,                   
-                bc_y_top, bc_y_top,                 
-                bc_y_mid, bc_y_mid,                 
-                bc_y_bot, bc_y_bot                  
+                bc1_y, bc2_y,                 
+                bc3_y, bc4_y,                 
+                bc5_y, bc6_y                  
             ],
             '樁型': ['中間樁'] * 9,
-            '樁號': ['A1', 'A2', 'A3', 'BC1', 'BC6', 'BC3', 'BC2', 'BC5', 'BC4'],
-            '數字': [254, 255, 256, 257, 262, 259, 258, 261, 260] 
+            '樁號': ['A1', 'A2', 'A3', 'BC1', 'BC2', 'BC3', 'BC4', 'BC5', 'BC6'],
+            '數字': [254, 255, 256, 257, 258, 259, 260, 261, 262] 
         })
         piles = pd.concat([piles, extra_piles], ignore_index=True)
         
@@ -157,7 +161,6 @@ def load_base_data():
 df_boundary = load_boundary_data()
 df_base = load_base_data()
 
-# ===== 座標系統自動校正模組 =====
 if not df_boundary.empty and not df_base.empty:
     p1_data = df_boundary[df_boundary['樁號'] == 'P1']
     mid1_data = df_base[df_base['樁號'] == '1']
@@ -177,7 +180,6 @@ if not df_boundary.empty and not df_base.empty:
         
         df_base['X'] = df_base['X'] + offset_x
         df_base['Y'] = df_base['Y'] + offset_y
-# ==============================
 
 def get_gs_connection():
     try:
