@@ -17,6 +17,12 @@ try:
 except ImportError:
     MATPLOTLIB_READY = False
 
+try:
+    from adjustText import adjust_text
+    ADJUSTTEXT_READY = True
+except ImportError:
+    ADJUSTTEXT_READY = False
+
 st.set_page_config(page_title="CDC中間樁與共構樁進度管理", layout="wide")
 st.title("🏗️ CDC中間樁與共構樁進度管理")
 
@@ -621,6 +627,10 @@ if not df_history_plot.empty or not df_p.empty:
 
     if MATPLOTLIB_READY:
         def draw_pdf_axis(ax, target_df, global_df, scale_factor=1.0, is_main=False):
+            label_texts = []
+            label_points_x = []
+            label_points_y = []
+
             if target_df.empty and df_boundary.empty: 
                 ax.axis('off')
                 return
@@ -687,16 +697,27 @@ if not df_history_plot.empty or not df_p.empty:
                         ax.scatter(sub['X'], sub['Y'], color=c, s=msize, zorder=3, label=legend_label)
                         if state == today_state_key:
                             for _, row in sub.iterrows():
-                                is_h = row['is_horizontal']; p = row['樁號']; s_txt = row['純順序']
-                                if is_h: 
-                                    ax.annotate(p, (row['X'], row['Y']), xytext=(0, offset), textcoords='offset points', fontsize=fsize, fontweight='bold', ha='center', va='bottom', zorder=4)
-                                    if s_txt: ax.annotate(s_txt, (row['X'], row['Y']), xytext=(0, -offset), textcoords='offset points', fontsize=fsize, color=c, ha='center', va='top', zorder=4)
-                                else:
-                                    ax.annotate(p, (row['X'], row['Y']), xytext=(-offset, 0), textcoords='offset points', fontsize=fsize, fontweight='bold', ha='right', va='center', zorder=4)
-                                    if s_txt: ax.annotate(s_txt, (row['X'], row['Y']), xytext=(offset, 0), textcoords='offset points', fontsize=fsize, color=c, ha='left', va='center', zorder=4)
+                                p = row['樁號']; s_txt = row['純順序']
+                                combo = f"{p}\n{s_txt}" if s_txt else p
+                                t = ax.text(row['X'], row['Y'], combo, fontsize=fsize,
+                                            fontweight='bold', color=c, ha='center', va='center', zorder=4)
+                                label_texts.append(t)
+                                label_points_x.append(row['X'])
+                                label_points_y.append(row['Y'])
                     elif is_main:
                         ax.scatter([], [], color=c, s=msize, zorder=3, label=legend_label)
-                        
+
+            if ADJUSTTEXT_READY and label_texts:
+                adjust_text(
+                    label_texts,
+                    x=label_points_x, y=label_points_y,
+                    ax=ax,
+                    arrowprops=dict(arrowstyle='-', color='gray', lw=0.6, alpha=0.7),
+                    expand_text=(1.1, 1.3),
+                    expand_points=(1.2, 1.4),
+                    force_text=(0.3, 0.5),
+                )
+
             ax.margins(0.1)
             ax.set_aspect('equal', adjustable='datalim')
             ax.axis('off')
