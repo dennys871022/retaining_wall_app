@@ -13,7 +13,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 try:
     import matplotlib.pyplot as plt
-    import matplotlib.patheffects as pe
     MATPLOTLIB_READY = True
 except ImportError:
     MATPLOTLIB_READY = False
@@ -546,6 +545,7 @@ if not df_history_plot.empty or not df_p.empty:
     st.sidebar.text_input("右側主標題", key="pdf_loc_note_right")
     st.sidebar.text_input("左側副標題", key="pdf_loc_note_left")
     st.sidebar.number_input("本週預計完成 (支)", key="pdf_week_est", step=1)
+    show_seq = st.sidebar.checkbox("🔢 PDF 圖上顯示施作順序 (機台+順序號)", value=True)
     
     st.sidebar.markdown("### 🎛️ PDF 圖表幾何微調")
     with st.sidebar.form("geom"):
@@ -627,7 +627,7 @@ if not df_history_plot.empty or not df_p.empty:
             st.sidebar.error(f"備份檔讀取失敗: {bk_e}")
 
     if MATPLOTLIB_READY:
-        def draw_pdf_axis(ax, target_df, global_df, scale_factor=1.0, is_main=False):
+        def draw_pdf_axis(ax, target_df, global_df, scale_factor=1.0, is_main=False, show_seq=True):
             label_texts = []
             label_points_x = []
             label_points_y = []
@@ -693,13 +693,13 @@ if not df_history_plot.empty or not df_p.empty:
                     elif is_main:
                         ax.scatter([], [], facecolors='none', edgecolors=c, s=msize, lw=1.5, zorder=2, label=legend_label)
                 else:
-                    legend_label = f"{state} 樁號 ○ 施作順序" if is_main else None
+                    legend_label = (f"{state} 樁號 ○ 施作順序" if show_seq else f"{state} 樁號") if is_main else None
                     if not sub.empty:
                         ax.scatter(sub['X'], sub['Y'], color=c, s=msize, zorder=3, label=legend_label)
                         if state == today_state_key:
                             for _, row in sub.iterrows():
                                 p = row['樁號']; s_txt = row['純順序']
-                                combo = f"{p}\n{s_txt}" if s_txt else p
+                                combo = f"{p}\n{s_txt}" if (show_seq and s_txt) else p
                                 if ADJUSTTEXT_READY:
                                     # adjustText 會自動移動文字位置，先放在原點上即可
                                     t = ax.text(row['X'], row['Y'], combo, fontsize=fsize,
@@ -713,7 +713,6 @@ if not df_history_plot.empty or not df_p.empty:
                                     else:
                                         t = ax.text(row['X'] - offset, row['Y'], combo, fontsize=fsize,
                                                     fontweight='bold', color='black', ha='right', va='center', zorder=5)
-                                t.set_path_effects([pe.withStroke(linewidth=2.5, foreground='white')])
                                 label_texts.append(t)
                                 label_points_x.append(row['X'])
                                 label_points_y.append(row['Y'])
@@ -745,26 +744,26 @@ if not df_history_plot.empty or not df_p.empty:
             
             if not (has_a or has_b):
                 ax = fig.add_axes([0.45, 0.1, 0.5, 0.75])
-                draw_pdf_axis(ax, df_p, df_p, 1.0, True) 
+                draw_pdf_axis(ax, df_p, df_p, 1.0, True, show_seq) 
                 ax.legend(loc='lower left', bbox_to_anchor=(pos_leg_x, pos_leg_y), fontsize=28 * fig_scale, markerscale=1.5)
             else:
                 if has_a and has_b:
                     ax_a = fig.add_axes([pos_img_a_x, pos_img_a_y, pos_img_a_w, 0.75])
-                    draw_pdf_axis(ax_a, df_p[df_p['樁號'].isin(st.session_state.sel_a)], df_p, 1.0, True)
+                    draw_pdf_axis(ax_a, df_p[df_p['樁號'].isin(st.session_state.sel_a)], df_p, 1.0, True, show_seq)
                     ax_a.set_title("A機作業區", fontsize=40*fig_scale, fontweight='bold', y=-0.05)
                     ax_a.legend(loc='lower left', bbox_to_anchor=(pos_leg_x, pos_leg_y), fontsize=28*fig_scale, markerscale=1.5)
                     
                     ax_b = fig.add_axes([pos_img_b_x, pos_img_b_y, pos_img_b_w, 0.75])
-                    draw_pdf_axis(ax_b, df_p[df_p['樁號'].isin(st.session_state.sel_b)], df_p, 1.0, False)
+                    draw_pdf_axis(ax_b, df_p[df_p['樁號'].isin(st.session_state.sel_b)], df_p, 1.0, False, show_seq)
                     ax_b.set_title("B機作業區", fontsize=40*fig_scale, fontweight='bold', y=-0.05)
                 elif has_a:
                     ax_a = fig.add_axes([pos_img_a_x, pos_img_a_y, pos_img_a_w, 0.75])
-                    draw_pdf_axis(ax_a, df_p[df_p['樁號'].isin(st.session_state.sel_a)], df_p, 1.0, True)
+                    draw_pdf_axis(ax_a, df_p[df_p['樁號'].isin(st.session_state.sel_a)], df_p, 1.0, True, show_seq)
                     ax_a.set_title("A機作業區", fontsize=40*fig_scale, fontweight='bold', y=-0.05)
                     ax_a.legend(loc='lower left', bbox_to_anchor=(pos_leg_x, pos_leg_y), fontsize=28*fig_scale, markerscale=1.5)
                 elif has_b:
                     ax_b = fig.add_axes([pos_img_b_x, pos_img_b_y, pos_img_b_w, 0.75])
-                    draw_pdf_axis(ax_b, df_p[df_p['樁號'].isin(st.session_state.sel_b)], df_p, 1.0, True)
+                    draw_pdf_axis(ax_b, df_p[df_p['樁號'].isin(st.session_state.sel_b)], df_p, 1.0, True, show_seq)
                     ax_b.set_title("B機作業區", fontsize=40*fig_scale, fontweight='bold', y=-0.05)
                     ax_b.legend(loc='lower left', bbox_to_anchor=(pos_leg_x, pos_leg_y), fontsize=28*fig_scale, markerscale=1.5)
 
