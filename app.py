@@ -13,6 +13,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 try:
     import matplotlib.pyplot as plt
+    import matplotlib.patheffects as pe
     MATPLOTLIB_READY = True
 except ImportError:
     MATPLOTLIB_READY = False
@@ -699,8 +700,20 @@ if not df_history_plot.empty or not df_p.empty:
                             for _, row in sub.iterrows():
                                 p = row['樁號']; s_txt = row['純順序']
                                 combo = f"{p}\n{s_txt}" if s_txt else p
-                                t = ax.text(row['X'], row['Y'], combo, fontsize=fsize,
-                                            fontweight='bold', color=c, ha='center', va='center', zorder=4)
+                                if ADJUSTTEXT_READY:
+                                    # adjustText 會自動移動文字位置，先放在原點上即可
+                                    t = ax.text(row['X'], row['Y'], combo, fontsize=fsize,
+                                                fontweight='bold', color='black', ha='center', va='center', zorder=5)
+                                else:
+                                    # 沒有 adjustText 時的備援：依水平/垂直方向手動偏移，避免文字疊在圓點正中央
+                                    is_h = row['is_horizontal']
+                                    if is_h:
+                                        t = ax.text(row['X'], row['Y'] + offset, combo, fontsize=fsize,
+                                                    fontweight='bold', color='black', ha='center', va='bottom', zorder=5)
+                                    else:
+                                        t = ax.text(row['X'] - offset, row['Y'], combo, fontsize=fsize,
+                                                    fontweight='bold', color='black', ha='right', va='center', zorder=5)
+                                t.set_path_effects([pe.withStroke(linewidth=2.5, foreground='white')])
                                 label_texts.append(t)
                                 label_points_x.append(row['X'])
                                 label_points_y.append(row['Y'])
@@ -712,10 +725,12 @@ if not df_history_plot.empty or not df_p.empty:
                     label_texts,
                     x=label_points_x, y=label_points_y,
                     ax=ax,
-                    arrowprops=dict(arrowstyle='-', color='gray', lw=0.6, alpha=0.7),
-                    expand_text=(1.1, 1.3),
-                    expand_points=(1.2, 1.4),
-                    force_text=(0.3, 0.5),
+                    arrowprops=dict(arrowstyle='-', color='gray', lw=0.7, alpha=0.8),
+                    expand_text=(1.5, 1.8),
+                    expand_points=(2.2, 2.5),
+                    force_text=(0.6, 0.9),
+                    force_points=(0.8, 1.0),
+                    lim=2000,
                 )
 
             ax.margins(0.1)
@@ -775,7 +790,12 @@ if not df_history_plot.empty or not df_p.empty:
             fig.text(pos_loc_x_left, pos_loc_y_left, st.session_state.pdf_loc_note_left, fontsize=55 * fig_scale, fontweight='bold', ha='center')
             return fig
 
-        pdf_fig = create_pdf_figure(); st.divider(); st.pyplot(pdf_fig)
+        pdf_fig = create_pdf_figure(); st.divider()
+        if ADJUSTTEXT_READY:
+            st.caption("✅ 文字防重疊模組 (adjustText) 已啟用")
+        else:
+            st.caption("⚠️ 文字防重疊模組 (adjustText) 未安裝成功，目前使用備援手動偏移。請確認 requirements.txt 內有 adjustText 並重新 Reboot App。")
+        st.pyplot(pdf_fig)
         buf = io.BytesIO(); pdf_fig.savefig(buf, format='pdf', bbox_inches='tight'); plt.close(pdf_fig)
         st.sidebar.markdown("### 📥 下載區")
         has_local_download = bool(st.session_state.sel_a) or bool(st.session_state.sel_b)
